@@ -140,3 +140,54 @@ table{width:100%;border-collapse:collapse;min-width:850px}th,td{padding:11px 10p
   .site-review-card{align-items:flex-start;flex-direction:column}.site-rating-actions{width:100%}.site-rating-actions button{flex:1}
   .after-actions{grid-template-columns:repeat(2,1fr)}.compact-panel{align-items:flex-start;flex-direction:column}.form-grid{grid-template-columns:1fr}.span-2{grid-column:auto}.weight-grid{grid-template-columns:1fr 1fr}
 }
+
+
+/* ===== Apify API integration ===== */
+.wide-import{max-width:1080px}
+.apify-grid{display:grid;grid-template-columns:minmax(0,.85fr) minmax(0,1.15fr);gap:14px}
+.api-badge{display:inline-flex;align-items:center;border-radius:999px;background:#eef3ff;color:#3157d5;padding:5px 9px;font-size:10px;font-weight:850;letter-spacing:.06em}
+.api-field{display:grid;gap:6px;margin-top:12px}
+.api-field>span{font-size:10px;color:var(--muted);font-weight:850;text-transform:uppercase;letter-spacing:.05em}
+.api-field input,.api-field select,.api-field textarea{
+  width:100%;border:1px solid var(--line);border-radius:10px;padding:10px 11px;background:#fff;color:var(--text);outline:0
+}
+.api-field textarea{resize:vertical;line-height:1.45}
+.api-field input:focus,.api-field select:focus,.api-field textarea:focus{border-color:#aabcf6;box-shadow:0 0 0 3px #eef3ff}
+.api-field small{font-size:10px;color:var(--muted)}
+.token-row{display:grid;grid-template-columns:1fr auto;gap:7px}
+.compact-btn{padding:8px 10px}
+.remember-row{display:flex;align-items:flex-start;gap:8px;margin-top:10px;font-size:11px;color:#555f70}
+.remember-row input{margin-top:2px}
+.security-note{margin-top:12px;background:#f8f9fb;border:1px solid var(--line);border-radius:9px;padding:9px 10px;color:var(--muted);font-size:10.5px;line-height:1.45}
+.api-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 10px}
+.span-2-api{grid-column:span 2}
+.run-summary{margin:13px 0 10px;border-radius:9px;background:#f5f7fb;padding:9px 10px;font-size:11px;color:#586174}
+.run-apify-btn{width:100%;display:flex;align-items:center;justify-content:center;gap:7px;flex-direction:column;padding:12px}
+.run-apify-btn small{opacity:.78;font-size:10px;font-weight:600}
+.run-apify-btn:disabled{background:#9aa7cf;cursor:not-allowed}
+.apify-progress{border-color:#dbe3fb}
+.progress-head{display:flex;justify-content:space-between;align-items:flex-start;gap:18px}
+.progress-head h2{margin:3px 0 3px}.progress-head p{margin:0;color:var(--muted);font-size:12px}
+.spinner{width:28px;height:28px;border:3px solid #e6eaf5;border-top-color:var(--primary);border-radius:50%;animation:spin .8s linear infinite}
+.spinner.done{border-color:#c7f0d2;border-top-color:#16a34a;animation:none;position:relative}
+.spinner.done:after{content:"✓";position:absolute;inset:-5px;display:grid;place-items:center;color:#16813c;font-weight:900}
+.spinner.error{border-color:#f3cccc;border-top-color:#c93636;animation:none}
+@keyframes spin{to{transform:rotate(360deg)}}
+.progress-track{height:7px;background:#edf0f6;border-radius:999px;overflow:hidden;margin:15px 0}
+.progress-fill{height:100%;width:8%;background:var(--primary);border-radius:inherit;transition:width .35s ease}
+.run-details{display:grid;grid-template-columns:1fr 1.5fr 1fr;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.run-details div{padding:10px 12px;border-right:1px solid var(--line)}
+.run-details div:last-child{border-right:0}
+.run-details span,.run-details strong{display:block}.run-details span{font-size:9px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}.run-details strong{font-size:11px;margin-top:3px;overflow:hidden;text-overflow:ellipsis}
+.progress-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.manual-import{margin:14px 0}
+.manual-import>summary{cursor:pointer;color:var(--muted);font-size:12px;font-weight:750;padding:8px 2px}
+.manual-import-panel{margin-top:8px}
+@media(max-width:850px){
+  .apify-grid{grid-template-columns:1fr}
+}
+@media(max-width:620px){
+  .api-form-grid{grid-template-columns:1fr}.span-2-api{grid-column:auto}
+  .run-details{grid-template-columns:1fr}.run-details div{border-right:0;border-bottom:1px solid var(--line)}.run-details div:last-child{border-bottom:0}
+  .progress-actions .btn{width:100%;text-align:center}
+}

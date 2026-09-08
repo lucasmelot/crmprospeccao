@@ -1,66 +1,99 @@
-# LeadFlow v3 — CRM local de prospecção
+# LeadFlow v4 — CRM local + Apify API
 
-Versão redesenhada para reduzir cliques e funcionar como uma **fila de trabalho**.
+Esta versão elimina a etapa de abrir o Apify, exportar um arquivo e depois importar no CRM.
 
-## Fluxo principal
+## Fluxo novo
 
-1. Importe o CSV/XLSX do Apify.
-2. A tela **Prospectar** abre os leads ainda não contatados, ordenados por score.
-3. Clique em **Enviar no WhatsApp**.
-4. O CRM:
-   - abre o WhatsApp com a mensagem pronta;
-   - marca o lead como `Mensagem enviada`;
-   - registra data/hora;
-   - avança automaticamente para o próximo lead.
-5. Quando houver retorno, use `Respondeu`, `Follow-up +3 dias` ou `Sem interesse`.
+1. Abra **Buscar Maps**.
+2. Cole seu **API Token do Apify**.
+3. Digite as pesquisas, uma por linha.
+4. Informe a localização.
+5. Clique em **Buscar no Google Maps**.
+6. O LeadFlow:
+   - inicia o Actor `compass/crawler-google-places`;
+   - acompanha o Run pela API;
+   - espera a execução terminar;
+   - baixa o dataset;
+   - converte os resultados em leads;
+   - remove/mescla duplicatas;
+   - joga tudo direto na fila de prospecção.
 
-## Atalhos
+Depois é só usar:
 
-Na tela Prospectar:
+**Prospectar → Enviar no WhatsApp → próximo lead.**
 
-- `W` = abrir WhatsApp e marcar como enviado.
-- `S` = pular o lead nesta sessão.
+## API usada
 
-## Importação
+O projeto usa a API REST v2 do Apify.
 
-O sistema reconhece automaticamente:
+Fluxo:
 
-- title / placeName / name
-- phone / phoneUnformatted
-- website / websiteUrl
-- totalScore / rating
-- reviewsCount / reviews
-- categoryName / category
-- city
-- url / googleMapsUrl
-- placeId
+- `POST /v2/actors/{actorId}/runs`
+- `GET /v2/actor-runs/{runId}`
+- `GET /v2/datasets/{datasetId}/items`
 
-CSV funciona totalmente offline. XLSX usa SheetJS carregado via CDN.
+A autenticação é enviada no header:
 
-## Mensagens
+```text
+Authorization: Bearer SEU_TOKEN
+```
 
-Existem templates diferentes para:
+O token não é enviado em query string.
 
-- lead **com site**;
-- lead **sem site**.
+## Google Maps Scraper
 
-A escolha é automática.
+Actor padrão:
 
-## Armazenamento
+```text
+compass~crawler-google-places
+```
 
-Os dados ficam no `localStorage` do navegador, sem servidor e sem mensalidade.
+Campos usados na busca:
 
-Use **Ajustes → Baixar backup** regularmente.
+- `searchStringsArray`
+- `locationQuery`
+- `maxCrawledPlacesPerSearch`
+- `language`
+- `website`
+- `skipClosedPlaces`
+- `scrapePlaceDetailPage`
+- `maxReviews: 0`
+- enriquecimentos extras desativados
 
-## Observação importante sobre WhatsApp
+Isso foi configurado para prospecção, evitando coletar reviews completas, imagens, redes sociais ou enriquecimento de leads sem necessidade.
 
-Ao clicar em **Enviar no WhatsApp**, o CRM abre a conversa e marca o lead como `Mensagem enviada`.
+## Token
 
-Como esta versão não usa a API oficial do WhatsApp, o sistema não consegue confirmar se você realmente apertou o botão de envio dentro do WhatsApp. Por isso, a marcação representa que a conversa foi aberta para envio.
+Por padrão, se você não marcar **Lembrar token neste navegador**, ele fica apenas no `sessionStorage` da aba/sessão.
+
+Se marcar a opção, ele será gravado no `localStorage` do navegador.
+
+O token:
+- não entra no backup JSON do CRM;
+- não entra no CSV;
+- não é colocado no código-fonte.
+
+Em computador compartilhado, não use a opção de lembrar.
+
+## Custos
+
+O LeadFlow continua gratuito e local.
+
+Porém, as execuções feitas no Apify usam os créditos/limites da sua conta Apify. A interface mostra uma estimativa máxima de quantidade de resultados antes da execução.
+
+## Importação manual
+
+A importação CSV/XLSX continua disponível como fallback em:
+
+**Buscar Maps → Prefiro importar um arquivo CSV/XLSX manualmente**
+
+## Exportação
+
+Você pode:
+- exportar todos os leads na tela **Leads**;
+- exportar somente a última busca feita via Apify na própria tela **Buscar Maps**.
 
 ## Como rodar
-
-Abra `index.html`.
 
 Recomendado:
 
@@ -68,8 +101,23 @@ Recomendado:
 python -m http.server 5500
 ```
 
-Depois:
+Depois abra:
 
 ```text
 http://localhost:5500
+```
+
+Rodar por HTTP local é preferível a abrir diretamente `file://`, principalmente para chamadas externas de API.
+
+## Estrutura
+
+```text
+leadflow_crm_v4/
+├── index.html
+├── README.md
+├── exemplo_apify.csv
+├── css/
+│   └── style.css
+└── js/
+    └── app.js
 ```

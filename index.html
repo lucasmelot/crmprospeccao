@@ -20,7 +20,7 @@
     <nav class="top-nav" aria-label="Navegação principal">
       <button class="nav-btn active" data-view="prospect">Prospectar</button>
       <button class="nav-btn" data-view="leads">Leads</button>
-      <button class="nav-btn" data-view="import">Importar</button>
+      <button class="nav-btn" data-view="import">Buscar Maps</button>
       <button class="nav-btn" data-view="settings">Ajustes</button>
     </nav>
 
@@ -175,7 +175,7 @@
         </div>
         <div class="page-actions">
           <button class="btn secondary" id="exportCsvBtn">Exportar CSV</button>
-          <button class="btn primary" data-go="import">Importar</button>
+          <button class="btn primary" data-go="import">Buscar no Maps</button>
         </div>
       </div>
 
@@ -228,32 +228,164 @@
       </div>
     </section>
 
-    <!-- IMPORTAR -->
+    <!-- BUSCAR / IMPORTAR -->
     <section class="view" id="view-import">
-      <div class="narrow-page">
+      <div class="narrow-page wide-import">
         <div class="page-title-row">
           <div>
-            <h1>Importar do Apify</h1>
-            <p>Arraste o CSV/XLSX e volte direto para a fila de prospecção.</p>
+            <h1>Buscar empresas no Google Maps</h1>
+            <p>Execute o Google Maps Scraper do Apify direto daqui e envie os resultados para sua fila.</p>
           </div>
         </div>
 
-        <div class="panel">
-          <div class="dropzone" id="dropzone">
-            <div class="drop-icon">⇩</div>
-            <h2>Solte o arquivo aqui</h2>
-            <p>CSV ou Excel exportado do Google Maps Scraper.</p>
-            <input type="file" id="fileInput" accept=".csv,.xlsx,.xls" hidden>
-            <button class="btn primary" id="chooseFileBtn">Escolher arquivo</button>
-            <small>CSV funciona totalmente offline. Excel usa SheetJS.</small>
+        <div class="apify-grid">
+          <div class="panel">
+            <div class="section-head">
+              <div>
+                <h2>1. Conexão com Apify</h2>
+                <p>Seu token é usado somente para chamar a API.</p>
+              </div>
+              <span class="api-badge">API</span>
+            </div>
+
+            <label class="api-field">
+              <span>API Token</span>
+              <div class="token-row">
+                <input id="apifyToken" type="password" autocomplete="off" placeholder="apify_api_...">
+                <button class="btn secondary compact-btn" id="toggleTokenBtn" type="button">Mostrar</button>
+              </div>
+            </label>
+
+            <label class="remember-row">
+              <input id="rememberApifyToken" type="checkbox">
+              <span>Lembrar token neste navegador</span>
+            </label>
+
+            <label class="api-field">
+              <span>Actor</span>
+              <input id="apifyActorId" type="text" value="compass~crawler-google-places">
+              <small>Padrão: Google Maps Scraper mantido pela Compass/Apify.</small>
+            </label>
+
+            <div class="security-note">
+              O token não entra no backup do CRM. Em computador compartilhado, deixe “lembrar token” desmarcado.
+            </div>
           </div>
-          <div id="importResult" class="import-result hidden"></div>
+
+          <div class="panel">
+            <div class="section-head">
+              <div>
+                <h2>2. Busca</h2>
+                <p>Uma pesquisa por linha. A localização é aplicada a todas.</p>
+              </div>
+            </div>
+
+            <label class="api-field">
+              <span>Pesquisas</span>
+              <textarea id="apifyQueries" rows="6" placeholder="limpeza de estofados&#10;higienização de sofá&#10;impermeabilização de sofá">limpeza de estofados</textarea>
+            </label>
+
+            <div class="api-form-grid">
+              <label class="api-field span-2-api">
+                <span>Localização</span>
+                <input id="apifyLocation" type="text" value="Jundiaí, São Paulo, Brazil">
+              </label>
+
+              <label class="api-field">
+                <span>Máx. por pesquisa</span>
+                <input id="apifyMaxPlaces" type="number" min="1" max="500" value="20">
+              </label>
+
+              <label class="api-field">
+                <span>Idioma</span>
+                <select id="apifyLanguage">
+                  <option value="pt-BR" selected>Português (Brasil)</option>
+                  <option value="en">English</option>
+                </select>
+              </label>
+
+              <label class="api-field">
+                <span>Site</span>
+                <select id="apifyWebsiteFilter">
+                  <option value="allPlaces" selected>Com e sem site</option>
+                  <option value="withoutWebsite">Somente sem site</option>
+                  <option value="withWebsite">Somente com site</option>
+                </select>
+              </label>
+
+              <label class="api-field">
+                <span>Nota mínima</span>
+                <select id="apifyMinStars">
+                  <option value="" selected>Sem filtro</option>
+                  <option value="four">4,0+</option>
+                  <option value="fourAndHalf">4,5+</option>
+                </select>
+              </label>
+            </div>
+
+            <label class="remember-row">
+              <input id="apifySkipClosed" type="checkbox" checked>
+              <span>Ignorar empresas marcadas como fechadas</span>
+            </label>
+
+            <label class="remember-row">
+              <input id="apifyPlaceDetails" type="checkbox" checked>
+              <span>Buscar detalhes do local para garantir contagem de avaliações</span>
+            </label>
+
+            <div class="run-summary" id="apifyRunSummary">Até 20 resultados nesta execução.</div>
+
+            <button class="btn primary run-apify-btn" id="runApifyBtn">
+              <span>Buscar no Google Maps</span>
+              <small>Executar via Apify API</small>
+            </button>
+          </div>
         </div>
+
+        <div class="panel apify-progress hidden" id="apifyProgress">
+          <div class="progress-head">
+            <div>
+              <span class="eyebrow">Execução Apify</span>
+              <h2 id="apifyProgressTitle">Iniciando...</h2>
+              <p id="apifyProgressText">Preparando a busca.</p>
+            </div>
+            <div class="spinner" id="apifySpinner"></div>
+          </div>
+
+          <div class="progress-track"><div class="progress-fill" id="apifyProgressFill"></div></div>
+
+          <div class="run-details">
+            <div><span>Status</span><strong id="apifyRunStatus">—</strong></div>
+            <div><span>Run ID</span><strong id="apifyRunId">—</strong></div>
+            <div><span>Encontrados</span><strong id="apifyFoundCount">0</strong></div>
+          </div>
+
+          <div class="progress-actions">
+            <a id="apifyConsoleLink" class="btn secondary hidden" target="_blank" rel="noopener">Abrir execução no Apify</a>
+            <button class="btn secondary hidden" id="exportLastApifyBtn">Exportar última busca</button>
+            <button class="btn primary hidden" id="goProspectAfterApifyBtn">Prospectar agora</button>
+          </div>
+        </div>
+
+        <details class="manual-import">
+          <summary>Prefiro importar um arquivo CSV/XLSX manualmente</summary>
+          <div class="panel manual-import-panel">
+            <div class="dropzone" id="dropzone">
+              <div class="drop-icon">⇩</div>
+              <h2>Solte o arquivo aqui</h2>
+              <p>CSV ou Excel exportado do Google Maps Scraper.</p>
+              <input type="file" id="fileInput" accept=".csv,.xlsx,.xls" hidden>
+              <button class="btn secondary" id="chooseFileBtn">Escolher arquivo</button>
+              <small>CSV funciona totalmente offline. Excel usa SheetJS.</small>
+            </div>
+            <div id="importResult" class="import-result hidden"></div>
+          </div>
+        </details>
 
         <div class="panel compact-panel">
           <div>
-            <strong>Campos reconhecidos automaticamente</strong>
-            <p>title, phone, website, totalScore, reviewsCount, categoryName, city, url, placeId.</p>
+            <strong>Os resultados entram direto no CRM</strong>
+            <p>Nome, telefone, site, nota, avaliações, categoria, cidade, link do Maps e placeId são reconhecidos e duplicatas são mescladas.</p>
           </div>
           <button class="btn secondary" id="sampleBtn">Carregar exemplo</button>
         </div>

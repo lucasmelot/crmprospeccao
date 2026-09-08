@@ -4,6 +4,12 @@
 const STORAGE_KEY = "leadflow_local_v1";
 const SETTINGS_KEY = "leadflow_settings_v1";
 
+const APIFY_TOKEN_LOCAL_KEY = "leadflow_apify_token_local_v1";
+const APIFY_TOKEN_SESSION_KEY = "leadflow_apify_token_session_v1";
+const APIFY_FORM_KEY = "leadflow_apify_form_v1";
+const APIFY_API_BASE = "https://api.apify.com/v2";
+
+
 const STATUSES = [
   "Não contatado",
   "Mensagem enviada",
@@ -38,6 +44,10 @@ let currentQueue = "new";
 let selectedLeadId = null;
 let skippedIds = new Set();
 let tableFiltered = [];
+
+let lastApifyLeads = [];
+let currentApifyRun = null;
+
 
 const $ = id => document.getElementById(id);
 const $$ = sel => Array.from(document.querySelectorAll(sel));
@@ -164,6 +174,7 @@ function switchView(name){
   document.querySelector(`.nav-btn[data-view="${name}"]`)?.classList.add("active");
   if(name==="prospect")renderProspect();
   if(name==="leads")renderLeadsTable();
+  if(name==="import")loadApifyForm();
   if(name==="settings")renderSettings();
 }
 
@@ -595,6 +606,299 @@ async function restore(file){
   }catch(e){toast(e.message||"Falha ao restaurar.")}
 }
 
+
+function getApifyStoredToken(){
+  return localStorage.getItem(APIFY_TOKEN_LOCAL_KEY)
+    || sessionStorage.getItem(APIFY_TOKEN_SESSION_KEY)
+    || "";
+}
+
+function saveApifyTokenPreference(){
+  const token=norm($("apifyToken").value);
+  const remember=$("rememberApifyToken").checked;
+
+  if(remember){
+    localStorage.setItem(APIFY_TOKEN_LOCAL_KEY,token);
+    sessionStorage.removeItem(APIFY_TOKEN_SESSION_KEY);
+  }else{
+    localStorage.removeItem(APIFY_TOKEN_LOCAL_KEY);
+    if(token)sessionStorage.setItem(APIFY_TOKEN_SESSION_KEY,token);
+    else sessionStorage.removeItem(APIFY_TOKEN_SESSION_KEY);
+  }
+}
+
+function actorIdForApi(value){
+  return norm(value).replace("/", "~");
+}
+
+function apifyHeaders(token, includeJson=false){
+  const headers={Authorization:`Bearer ${token}`};
+  if(includeJson)headers["Content-Type"]="application/json";
+  return headers;
+}
+
+async function apifyFetch(url, options={}){
+  const response=await fetch(url,options);
+  const text=await response.text();
+  let data=null;
+  try{data=text?JSON.parse(text):null}catch{data=text}
+
+  if(!response.ok){
+    let message=`Apify retornou HTTP ${response.status}.`;
+    if(data?.error?.message)message=data.error.message;
+    else if(data?.message)message=data.message;
+    else if(typeof data==="string" && data.trim())message=data.slice(0,300);
+
+    if(response.status===401 || response.status===403){
+      message="Token inválido, sem permissão ou Actor indisponível para esta conta.";
+    }
+    throw new Error(message);
+  }
+  return data;
+}
+
+function getApifyForm(){
+  return {
+    actorId: actorIdForApi($("apifyActorId").value || "compass~crawler-google-places"),
+    queries: $("apifyQueries").value.split(/\r?\n/).map(v=>v.trim()).filter(Boolean),
+    location: norm($("apifyLocation").value),
+    maxPlaces: Math.max(1,Number($("apifyMaxPlaces").value||20)),
+    language: $("apifyLanguage").value || "pt-BR",
+    website: $("apifyWebsiteFilter").value || "allPlaces",
+    minStars: $("apifyMinStars").value || "",
+    skipClosed: $("apifySkipClosed").checked,
+    placeDetails: $("apifyPlaceDetails").checked
+  };
+}
+
+function saveApifyForm(){
+  const f=getApifyForm();
+  localStorage.setItem(APIFY_FORM_KEY,JSON.stringify({
+    actorId:f.actorId,queries:f.queries,location:f.location,maxPlaces:f.maxPlaces,
+    language:f.language,website:f.website,minStars:f.minStars,
+    skipClosed:f.skipClosed,placeDetails:f.placeDetails
+  }));
+}
+
+function loadApifyForm(){
+  const saved=loadJSON(APIFY_FORM_KEY,null);
+  $("apifyToken").value=getApifyStoredToken();
+  $("rememberApifyToken").checked=Boolean(localStorage.getItem(APIFY_TOKEN_LOCAL_KEY));
+
+  if(saved){
+    $("apifyActorId").value=saved.actorId||"compass~crawler-google-places";
+    $("apifyQueries").value=Array.isArray(saved.queries)?saved.queries.join("\n"):(saved.queries||"limpeza de estofados");
+    $("apifyLocation").value=saved.location||"Jundiaí, São Paulo, Brazil";
+    $("apifyMaxPlaces").value=saved.maxPlaces||20;
+    $("apifyLanguage").value=saved.language||"pt-BR";
+    $("apifyWebsiteFilter").value=saved.website||"allPlaces";
+    $("apifyMinStars").value=saved.minStars||"";
+    $("apifySkipClosed").checked=saved.skipClosed!==false;
+    $("apifyPlaceDetails").checked=saved.placeDetails!==false;
+  }
+  updateApifyRunSummary();
+}
+
+function updateApifyRunSummary(){
+  const queries=$("apifyQueries").value.split(/\r?\n/).map(v=>v.trim()).filter(Boolean);
+  const max=Math.max(1,Number($("apifyMaxPlaces").value||20));
+  const estimated=queries.length*max;
+  $("apifyRunSummary").textContent=queries.length
+    ? `Até ${estimated.toLocaleString("pt-BR")} resultados (${queries.length} pesquisa${queries.length===1?"":"s"} × ${max}). O Apify pode cobrar créditos conforme seu plano.`
+    : "Adicione pelo menos uma pesquisa.";
+}
+
+function setApifyProgress({title,text,status,percent,runId,found,state="running"}){
+  $("apifyProgress").classList.remove("hidden");
+  $("apifyProgressTitle").textContent=title||"Executando...";
+  $("apifyProgressText").textContent=text||"";
+  $("apifyRunStatus").textContent=status||"—";
+  $("apifyRunId").textContent=runId||"—";
+  $("apifyFoundCount").textContent=Number(found||0).toLocaleString("pt-BR");
+  $("apifyProgressFill").style.width=`${Math.max(4,Math.min(100,percent||5))}%`;
+  $("apifySpinner").className="spinner"+(state==="done"?" done":state==="error"?" error":"");
+}
+
+function setRunButtonLoading(loading){
+  $("runApifyBtn").disabled=loading;
+  $("runApifyBtn").querySelector("span").textContent=loading?"Buscando empresas...":"Buscar no Google Maps";
+  $("runApifyBtn").querySelector("small").textContent=loading?"Você pode acompanhar abaixo":"Executar via Apify API";
+}
+
+function apifyRunData(payload){
+  return payload?.data || payload || {};
+}
+
+function buildGoogleMapsActorInput(form){
+  const input={
+    searchStringsArray:form.queries,
+    locationQuery:form.location,
+    maxCrawledPlacesPerSearch:form.maxPlaces,
+    language:form.language,
+    website:form.website,
+    skipClosedPlaces:form.skipClosed,
+    scrapePlaceDetailPage:form.placeDetails,
+    maxReviews:0,
+    scrapeContacts:false,
+    includeWebResults:false,
+    scrapeDirectories:false,
+    maxImages:0,
+    maximumLeadsEnrichmentRecords:0,
+    maxCompetitorsToAnalyze:0,
+    scrapeSocialMediaProfiles:{
+      facebooks:false,
+      instagrams:false,
+      youtubes:false,
+      tiktoks:false,
+      twitters:false
+    }
+  };
+  if(form.minStars)input.placeMinimumStars=form.minStars;
+  return input;
+}
+
+async function sleep(ms){return new Promise(resolve=>setTimeout(resolve,ms))}
+
+async function startApifySearch(){
+  const token=norm($("apifyToken").value);
+  const form=getApifyForm();
+
+  if(!token){toast("Cole seu API Token do Apify.");$("apifyToken").focus();return}
+  if(!form.queries.length){toast("Informe pelo menos uma pesquisa.");$("apifyQueries").focus();return}
+  if(!form.location){toast("Informe a localização da busca.");$("apifyLocation").focus();return}
+
+  saveApifyTokenPreference();
+  saveApifyForm();
+  lastApifyLeads=[];
+  currentApifyRun=null;
+
+  $("exportLastApifyBtn").classList.add("hidden");
+  $("goProspectAfterApifyBtn").classList.add("hidden");
+  $("apifyConsoleLink").classList.add("hidden");
+  setRunButtonLoading(true);
+  setApifyProgress({
+    title:"Enviando busca ao Apify",
+    text:"Criando uma nova execução do Google Maps Scraper.",
+    status:"STARTING",percent:8,state:"running"
+  });
+
+  try{
+    const actor=encodeURIComponent(form.actorId);
+    const payload=await apifyFetch(`${APIFY_API_BASE}/actors/${actor}/runs`,{
+      method:"POST",
+      headers:apifyHeaders(token,true),
+      body:JSON.stringify(buildGoogleMapsActorInput(form))
+    });
+
+    const run=apifyRunData(payload);
+    if(!run.id)throw new Error("O Apify iniciou a chamada, mas não retornou um Run ID.");
+
+    currentApifyRun={
+      id:run.id,
+      datasetId:run.defaultDatasetId||"",
+      actorId:form.actorId
+    };
+
+    $("apifyConsoleLink").href=`https://console.apify.com/actors/runs/${encodeURIComponent(run.id)}`;
+    $("apifyConsoleLink").classList.remove("hidden");
+
+    setApifyProgress({
+      title:"Google Maps Scraper em execução",
+      text:"Aguardando o Apify finalizar a coleta.",
+      status:run.status||"RUNNING",
+      runId:run.id,percent:18,state:"running"
+    });
+
+    const terminal=["SUCCEEDED","FAILED","ABORTED","TIMED-OUT"];
+    let finalRun=run;
+    const started=Date.now();
+    const maxWaitMs=12*60*1000;
+
+    while(!terminal.includes(finalRun.status)){
+      if(Date.now()-started>maxWaitMs){
+        throw new Error("A busca ainda está rodando após 12 minutos. Abra a execução no Apify e tente recuperar os resultados depois.");
+      }
+
+      await sleep(3000);
+      const statusPayload=await apifyFetch(`${APIFY_API_BASE}/actor-runs/${encodeURIComponent(run.id)}`,{
+        headers:apifyHeaders(token)
+      });
+      finalRun=apifyRunData(statusPayload);
+
+      const elapsed=Math.round((Date.now()-started)/1000);
+      const pseudoProgress=Math.min(82,20+Math.floor(elapsed/4));
+      setApifyProgress({
+        title:"Coletando empresas no Google Maps",
+        text:`Execução em andamento há ${elapsed}s.`,
+        status:finalRun.status||"RUNNING",
+        runId:run.id,percent:pseudoProgress,state:"running"
+      });
+    }
+
+    if(finalRun.status!=="SUCCEEDED"){
+      throw new Error(`A execução terminou com status ${finalRun.status}. Abra a execução no Apify para ver os detalhes.`);
+    }
+
+    const datasetId=finalRun.defaultDatasetId || currentApifyRun.datasetId;
+    if(!datasetId)throw new Error("A execução terminou, mas não retornou o ID do dataset.");
+
+    currentApifyRun.datasetId=datasetId;
+    setApifyProgress({
+      title:"Busca concluída",
+      text:"Baixando os resultados do dataset para o CRM.",
+      status:"SUCCEEDED",runId:run.id,percent:88,state:"running"
+    });
+
+    const datasetPayload=await apifyFetch(
+      `${APIFY_API_BASE}/datasets/${encodeURIComponent(datasetId)}/items?format=json&clean=true`,
+      {headers:apifyHeaders(token)}
+    );
+
+    const items=Array.isArray(datasetPayload)
+      ? datasetPayload
+      : (datasetPayload?.data?.items || datasetPayload?.items || []);
+
+    if(!Array.isArray(items))throw new Error("O dataset foi retornado em um formato inesperado.");
+
+    const converted=items.map(importedRow).filter(l=>l.name!=="Empresa sem nome");
+    const result=mergeImported(converted);
+    lastApifyLeads=converted;
+
+    setApifyProgress({
+      title:"Leads enviados para o CRM",
+      text:`${result.added} novos leads e ${result.updated} atualizados. Duplicatas foram mescladas automaticamente.`,
+      status:"SUCCEEDED",runId:run.id,found:converted.length,percent:100,state:"done"
+    });
+
+    $("exportLastApifyBtn").classList.toggle("hidden",converted.length===0);
+    $("goProspectAfterApifyBtn").classList.remove("hidden");
+    selectedLeadId=null;
+    currentQueue="new";
+    renderProspect();
+    renderLeadsTable();
+    toast(`${converted.length} resultados recebidos do Apify.`);
+  }catch(error){
+    setApifyProgress({
+      title:"Não foi possível concluir a busca",
+      text:error.message||"Falha ao chamar a API do Apify.",
+      status:"ERRO",runId:currentApifyRun?.id||"",percent:100,state:"error"
+    });
+    toast(error.message||"Erro na integração com Apify.");
+  }finally{
+    setRunButtonLoading(false);
+  }
+}
+
+function exportLeadArrayCSV(source,filePrefix="leads"){
+  if(!source.length){toast("Não há resultados para exportar.");return}
+  const headers=["Empresa","Telefone","Site","Qualidade site","Nota","Avaliações","Categoria","Cidade","Status","Score","Maps"];
+  const lines=[headers.map(csvEscape).join(",")];
+  source.forEach(l=>lines.push([
+    l.name,l.phone,l.website,siteLabel(l),l.rating,l.reviews,l.category,l.city,l.status,scoreLead(l),l.mapsUrl
+  ].map(csvEscape).join(",")));
+  download("\uFEFF"+lines.join("\r\n"),`${filePrefix}_${new Date().toISOString().slice(0,10)}.csv`,"text/csv;charset=utf-8");
+}
+
 function renderSettings(){
   $("messageWithSite").value=settings.messageTemplateWithSite;
   $("messageWithoutSite").value=settings.messageTemplateWithoutSite;
@@ -674,6 +978,20 @@ function bind(){
   $("saveLeadBtn").addEventListener("click",saveModal);
   $("deleteLeadBtn").addEventListener("click",deleteLead);
 
+  $("runApifyBtn").addEventListener("click",startApifySearch);
+  $("toggleTokenBtn").addEventListener("click",()=>{
+    const input=$("apifyToken");
+    const show=input.type==="password";
+    input.type=show?"text":"password";
+    $("toggleTokenBtn").textContent=show?"Ocultar":"Mostrar";
+  });
+  $("rememberApifyToken").addEventListener("change",saveApifyTokenPreference);
+  ["apifyQueries","apifyMaxPlaces"].forEach(id=>$(id).addEventListener("input",updateApifyRunSummary));
+  ["apifyLocation","apifyLanguage","apifyWebsiteFilter","apifyMinStars","apifySkipClosed","apifyPlaceDetails","apifyActorId"]
+    .forEach(id=>$(id).addEventListener("change",saveApifyForm));
+  $("exportLastApifyBtn").addEventListener("click",()=>exportLeadArrayCSV(lastApifyLeads,"apify_maps"));
+  $("goProspectAfterApifyBtn").addEventListener("click",()=>switchView("prospect"));
+
   $("chooseFileBtn").addEventListener("click",()=>$("fileInput").click());
   $("fileInput").addEventListener("change",e=>handleFile(e.target.files[0]));
   const dz=$("dropzone");
@@ -703,6 +1021,7 @@ function init(){
   populateStatuses();
   bind();
   renderSettings();
+  loadApifyForm();
   renderAll();
 }
 init();
