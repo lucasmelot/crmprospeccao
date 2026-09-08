@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LeadFlow — Prospecção simples</title>
+  <meta name="description" content="CRM local para prospecção rápida via WhatsApp.">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand">
+      <div class="brand-mark">L</div>
+      <div>
+        <strong>LeadFlow</strong>
+        <small>prospecção local</small>
+      </div>
+    </div>
+
+    <nav class="top-nav" aria-label="Navegação principal">
+      <button class="nav-btn active" data-view="prospect">Prospectar</button>
+      <button class="nav-btn" data-view="leads">Leads</button>
+      <button class="nav-btn" data-view="import">Importar</button>
+      <button class="nav-btn" data-view="settings">Ajustes</button>
+    </nav>
+
+    <div class="header-actions">
+      <button class="icon-btn" id="addLeadBtn" title="Adicionar lead">+</button>
+    </div>
+  </header>
+
+  <main class="page">
+    <!-- PROSPECÇÃO -->
+    <section class="view active" id="view-prospect">
+      <div class="page-title-row">
+        <div>
+          <h1>Fila de prospecção</h1>
+          <p>Escolha um lead, abra o WhatsApp e avance para o próximo.</p>
+        </div>
+        <div class="mini-stats">
+          <div><strong id="statNew">0</strong><span>novos</span></div>
+          <div><strong id="statSent">0</strong><span>enviados</span></div>
+          <div><strong id="statReplies">0</strong><span>respostas</span></div>
+          <div><strong id="statClosed">0</strong><span>fechados</span></div>
+        </div>
+      </div>
+
+      <div class="queue-tabs" id="queueTabs">
+        <button class="queue-tab active" data-queue="new">Para abordar <span id="countNew">0</span></button>
+        <button class="queue-tab" data-queue="hot">Quentes <span id="countHot">0</span></button>
+        <button class="queue-tab" data-queue="sent">Enviados <span id="countSent">0</span></button>
+        <button class="queue-tab" data-queue="followup">Follow-up <span id="countFollowup">0</span></button>
+        <button class="queue-tab" data-queue="all">Todos <span id="countAll">0</span></button>
+      </div>
+
+      <div class="prospect-layout">
+        <aside class="queue-panel">
+          <div class="queue-toolbar">
+            <div class="search-box">
+              <span>⌕</span>
+              <input id="queueSearch" type="search" placeholder="Buscar empresa...">
+            </div>
+            <select id="queueSiteFilter" title="Filtrar por site">
+              <option value="">Site: todos</option>
+              <option value="none">Sem site</option>
+              <option value="has">Com site</option>
+              <option value="bad">Site ruim</option>
+            </select>
+          </div>
+
+          <div class="queue-list" id="queueList"></div>
+          <div class="queue-empty hidden" id="queueEmpty">
+            <div class="empty-icon">✓</div>
+            <strong>Nada por aqui.</strong>
+            <span>Troque o filtro ou importe novos leads.</span>
+          </div>
+        </aside>
+
+        <section class="lead-focus" id="leadFocus">
+          <div class="lead-empty" id="focusEmpty">
+            <div class="empty-icon large">→</div>
+            <h2>Selecione um lead</h2>
+            <p>Você verá tudo o que precisa para abordar sem ficar abrindo várias telas.</p>
+          </div>
+
+          <div id="focusContent" class="hidden">
+            <div class="focus-head">
+              <div>
+                <div class="eyebrow-row">
+                  <span class="score-pill" id="focusScore">0</span>
+                  <span class="site-pill" id="focusSiteBadge">Sem site</span>
+                </div>
+                <h2 id="focusName">Empresa</h2>
+                <p id="focusMeta">Categoria • Cidade</p>
+              </div>
+
+              <button class="more-btn" id="editCurrentBtn" title="Editar lead">•••</button>
+            </div>
+
+            <div class="info-strip">
+              <div>
+                <span>Nota</span>
+                <strong id="focusRating">—</strong>
+              </div>
+              <div>
+                <span>Avaliações</span>
+                <strong id="focusReviews">0</strong>
+              </div>
+              <div>
+                <span>Telefone</span>
+                <strong id="focusPhone">—</strong>
+              </div>
+            </div>
+
+            <div class="quick-links">
+              <a id="focusSiteLink" class="quick-link hidden" target="_blank" rel="noopener">↗ Abrir site</a>
+              <a id="focusMapsLink" class="quick-link hidden" target="_blank" rel="noopener">⌖ Google Maps</a>
+              <button class="quick-link" id="copyPhoneBtn">⧉ Copiar telefone</button>
+            </div>
+
+            <div class="site-review-card" id="siteReviewCard">
+              <div>
+                <strong>Como está o site?</strong>
+                <span>1 clique melhora a prioridade desse lead.</span>
+              </div>
+              <div class="site-rating-actions">
+                <button data-site-quality="bad">Ruim</button>
+                <button data-site-quality="ok">Razoável</button>
+                <button data-site-quality="good">Bom</button>
+              </div>
+            </div>
+
+            <div class="message-card">
+              <div class="message-head">
+                <div>
+                  <span class="eyebrow">Mensagem pronta</span>
+                  <strong id="messageTypeLabel">Lead sem site</strong>
+                </div>
+                <button class="text-btn" id="copyMessageBtn">Copiar</button>
+              </div>
+              <p id="focusMessage"></p>
+            </div>
+
+            <div class="primary-action-wrap">
+              <button class="whatsapp-btn" id="sendWhatsappBtn">
+                <span class="wa-icon">✆</span>
+                <span>
+                  <strong>Enviar no WhatsApp</strong>
+                  <small>abre a conversa e marca como enviado</small>
+                </span>
+                <span class="arrow">→</span>
+              </button>
+              <p class="action-note">O sistema marca como “Mensagem enviada” quando o WhatsApp é aberto. O envio real precisa ser confirmado por você no WhatsApp.</p>
+            </div>
+
+            <div class="after-actions">
+              <button class="secondary-action" id="skipBtn">Pular</button>
+              <button class="secondary-action" id="markRepliedBtn">Respondeu</button>
+              <button class="secondary-action" id="followupBtn">Follow-up +3 dias</button>
+              <button class="secondary-action danger" id="noInterestBtn">Sem interesse</button>
+            </div>
+
+            <div class="last-activity hidden" id="lastActivity"></div>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <!-- LEADS -->
+    <section class="view" id="view-leads">
+      <div class="page-title-row">
+        <div>
+          <h1>Todos os leads</h1>
+          <p>Use esta tela para organizar. Para vender, trabalhe pela fila de prospecção.</p>
+        </div>
+        <div class="page-actions">
+          <button class="btn secondary" id="exportCsvBtn">Exportar CSV</button>
+          <button class="btn primary" data-go="import">Importar</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="filters">
+          <div class="search-box grow">
+            <span>⌕</span>
+            <input id="leadSearch" type="search" placeholder="Buscar empresa, cidade, categoria...">
+          </div>
+          <select id="leadStatusFilter">
+            <option value="">Todos os status</option>
+          </select>
+          <select id="leadSiteFilter">
+            <option value="">Todos os sites</option>
+            <option value="none">Sem site</option>
+            <option value="has">Com site</option>
+            <option value="bad">Site ruim</option>
+          </select>
+          <select id="leadPriorityFilter">
+            <option value="">Todas prioridades</option>
+            <option value="hot">Quentes</option>
+            <option value="good">Boas</option>
+            <option value="medium">Médias</option>
+            <option value="low">Baixas</option>
+          </select>
+        </div>
+
+        <div class="table-meta">
+          <span id="leadResultCount">0 leads</span>
+          <button class="text-btn danger-text" id="clearAllBtn">Apagar base</button>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Empresa</th>
+                <th>Score</th>
+                <th>Nota</th>
+                <th>Avaliações</th>
+                <th>Site</th>
+                <th>Status</th>
+                <th>Último contato</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="leadsTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- IMPORTAR -->
+    <section class="view" id="view-import">
+      <div class="narrow-page">
+        <div class="page-title-row">
+          <div>
+            <h1>Importar do Apify</h1>
+            <p>Arraste o CSV/XLSX e volte direto para a fila de prospecção.</p>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="dropzone" id="dropzone">
+            <div class="drop-icon">⇩</div>
+            <h2>Solte o arquivo aqui</h2>
+            <p>CSV ou Excel exportado do Google Maps Scraper.</p>
+            <input type="file" id="fileInput" accept=".csv,.xlsx,.xls" hidden>
+            <button class="btn primary" id="chooseFileBtn">Escolher arquivo</button>
+            <small>CSV funciona totalmente offline. Excel usa SheetJS.</small>
+          </div>
+          <div id="importResult" class="import-result hidden"></div>
+        </div>
+
+        <div class="panel compact-panel">
+          <div>
+            <strong>Campos reconhecidos automaticamente</strong>
+            <p>title, phone, website, totalScore, reviewsCount, categoryName, city, url, placeId.</p>
+          </div>
+          <button class="btn secondary" id="sampleBtn">Carregar exemplo</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- AJUSTES -->
+    <section class="view" id="view-settings">
+      <div class="narrow-page">
+        <div class="page-title-row">
+          <div>
+            <h1>Ajustes</h1>
+            <p>Deixe sua abordagem pronta uma vez e só execute a fila.</p>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h2>Mensagem — lead com site</h2>
+          <textarea class="settings-textarea" id="messageWithSite" rows="8"></textarea>
+          <h2 class="settings-subtitle">Mensagem — lead sem site</h2>
+          <textarea class="settings-textarea" id="messageWithoutSite" rows="8"></textarea>
+          <div class="hint">Variáveis: <code>{empresa}</code> <code>{cidade}</code> <code>{categoria}</code></div>
+
+          <label class="inline-field">
+            <span>DDI padrão</span>
+            <input id="defaultCountryCode" type="text" value="55">
+          </label>
+
+          <button class="btn primary" id="saveMessagesBtn">Salvar mensagens</button>
+        </div>
+
+        <div class="panel">
+          <div class="section-head">
+            <div>
+              <h2>Score automático</h2>
+              <p>Você pode deixar no padrão e ignorar esta parte.</p>
+            </div>
+          </div>
+
+          <div class="weight-grid">
+            <label><span>Sem site</span><input id="wNoSite" type="number"></label>
+            <label><span>Site ruim</span><input id="wBadSite" type="number"></label>
+            <label><span>20+ avaliações</span><input id="wReviews" type="number"></label>
+            <label><span>Nota ≥ 4,5</span><input id="wRating" type="number"></label>
+            <label><span>Telefone</span><input id="wPhone" type="number"></label>
+            <label><span>500+ avaliações</span><input id="wManyReviews" type="number"></label>
+            <label><span>Franquia/rede</span><input id="wFranchise" type="number"></label>
+          </div>
+          <button class="btn secondary" id="saveWeightsBtn">Salvar score</button>
+        </div>
+
+        <div class="panel compact-panel">
+          <div>
+            <strong>Backup local</strong>
+            <p>Se limpar os dados do navegador, sua base pode ser perdida.</p>
+          </div>
+          <div class="page-actions">
+            <button class="btn secondary" id="backupBtn">Baixar backup</button>
+            <input type="file" id="restoreInput" accept=".json" hidden>
+            <button class="btn secondary" id="restoreBtn">Restaurar</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- MODAL -->
+  <div class="modal-backdrop hidden" id="leadModal">
+    <div class="modal">
+      <div class="modal-head">
+        <div>
+          <span class="eyebrow">Lead</span>
+          <h2 id="modalTitle">Novo lead</h2>
+        </div>
+        <button class="close-btn" id="closeModalBtn">×</button>
+      </div>
+
+      <div class="modal-body">
+        <input type="hidden" id="editLeadId">
+        <div class="form-grid">
+          <label><span>Empresa</span><input id="editName" type="text"></label>
+          <label><span>Telefone</span><input id="editPhone" type="text"></label>
+          <label><span>Site</span><input id="editWebsite" type="text" placeholder="https://..."></label>
+          <label>
+            <span>Qualidade do site</span>
+            <select id="editSiteQuality">
+              <option value="none">Sem site</option>
+              <option value="unknown">Não analisado</option>
+              <option value="bad">Ruim</option>
+              <option value="ok">Razoável</option>
+              <option value="good">Bom</option>
+            </select>
+          </label>
+          <label><span>Nota</span><input id="editRating" type="number" min="0" max="5" step="0.1"></label>
+          <label><span>Avaliações</span><input id="editReviews" type="number" min="0"></label>
+          <label><span>Categoria</span><input id="editCategory" type="text"></label>
+          <label><span>Cidade</span><input id="editCity" type="text"></label>
+          <label>
+            <span>Status</span>
+            <select id="editStatus"></select>
+          </label>
+          <label><span>Follow-up</span><input id="editFollowup" type="date"></label>
+          <label class="span-2"><span>Google Maps</span><input id="editMaps" type="text"></label>
+        </div>
+
+        <label class="checkbox-row">
+          <input id="editFranchise" type="checkbox">
+          <span>Franquia/rede grande</span>
+        </label>
+
+        <label class="full-field">
+          <span>Observações</span>
+          <textarea id="editNotes" rows="4"></textarea>
+        </label>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn danger-outline hidden" id="deleteLeadBtn">Excluir</button>
+        <div class="page-actions">
+          <button class="btn secondary" id="cancelModalBtn">Cancelar</button>
+          <button class="btn primary" id="saveLeadBtn">Salvar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast-wrap" id="toastWrap"></div>
+
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
