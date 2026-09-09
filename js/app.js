@@ -4,10 +4,7 @@
 const STORAGE_KEY = "leadflow_local_v1";
 const SETTINGS_KEY = "leadflow_settings_v1";
 
-const APIFY_TOKEN_LOCAL_KEY = "leadflow_apify_token_local_v1";
-const APIFY_TOKEN_SESSION_KEY = "leadflow_apify_token_session_v1";
 const APIFY_FORM_KEY = "leadflow_apify_form_v1";
-const APIFY_API_BASE = "https://api.apify.com/v2";
 
 
 const STATUSES = [
@@ -38,7 +35,11 @@ const DEFAULT_SETTINGS = {
   }
 };
 
-let leads = loadJSON(STORAGE_KEY, []);
+let leads = [];
+let supabaseClient = null;
+let currentUser = null;
+let realtimeChannel = null;
+let activityRequestSeq = 0;
 let settings = deepMerge(DEFAULT_SETTINGS, loadJSON(SETTINGS_KEY, {}));
 let currentQueue = "new";
 let selectedLeadId = null;
@@ -96,7 +97,85 @@ function safeUrl(v){
     return ["http:","https:"].includes(u.protocol)?u.href:"";
   }catch{return ""}
 }
-function persist(){ saveJSON(STORAGE_KEY,leads); }
+function setSyncState(state,text){
+  const el=$("syncIndicator"); if(!el)return;
+  el.className="sync-indicator"+(state?` ${state}`:"");
+  el.textContent=text||"Sincronizado";
+}
+function leadToRow(l){
+  return {
+    id:l.id, place_id:l.placeId||null, name:l.name, phone:l.phone||null, website:l.website||null,
+    site_quality:l.siteQuality||"none", rating:Number(l.rating||0), reviews:Number(l.reviews||0),
+    category:l.category||null, address:l.address||null, city:l.city||null, state:l.state||null,
+    maps_url:l.mapsUrl||null, status:l.status||"Não contatado", notes:l.notes||null,
+    followup:l.followup||null, franchise:Boolean(l.franchise), sent_at:l.sentAt||null,
+    replied_at:l.repliedAt||null, last_contact_at:l.lastContactAt||null,
+    created_at:l.createdAt||new Date().toISOString(), updated_at:l.updatedAt||new Date().toISOString()
+  };
+}
+function rowToLead(r){
+  return {
+    id:r.id, placeId:r.place_id||"", name:r.name||"Empresa sem nome", phone:r.phone||"",
+    website:r.website||"", siteQuality:r.site_quality||(r.website?"unknown":"none"),
+    rating:Number(r.rating||0), reviews:Number(r.reviews||0), category:r.category||"", address:r.address||"",
+    city:r.city||"", state:r.state||"", mapsUrl:r.maps_url||"", status:r.status||"Não contatado",
+    notes:r.notes||"", followup:r.followup||"", franchise:Boolean(r.franchise), sentAt:r.sent_at||"",
+    repliedAt:r.replied_at||"", lastContactAt:r.last_contact_at||"",
+    createdAt:r.created_at||new Date().toISOString(), updatedAt:r.updated_at||new Date().toISOString()
+  };
+}
+async function persist(changedLeads=leads){
+  if(!supabaseClient||!currentUser)return;
+  const arr=Array.isArray(changedLeads)?changedLeads:[changedLeads];
+  if(!arr.length)return;
+  setSyncState("syncing","Salvando...");
+  const {error}=await supabaseClient.from("leads").upsert(arr.map(leadToRow),{onConflict:"id"});
+  if(error){console.error(error);setSyncState("error","Erro ao salvar");toast("Falha ao sincronizar com o Supabase.");return false}
+  setSyncState("","Sincronizado");return true;
+}
+async function persistSettings(){
+  saveJSON(SETTINGS_KEY,settings);
+  if(!supabaseClient||!currentUser)return;
+  const {error}=await supabaseClient.from("app_settings").upsert({id:1,settings,updated_at:new Date().toISOString()},{onConflict:"id"});
+  if(error)console.error(error);
+}
+async function addActivity(leadId,type,description=""){
+  if(!supabaseClient||!currentUser||!leadId)return;
+  const {error}=await supabaseClient.from("activities").insert({lead_id:leadId,user_id:currentUser.id,type,description:description||null});
+  if(error)console.error(error);
+}
+async function loadActivities(leadId){
+  const seq=++activityRequestSeq;
+  const box=$("activityList"); if(!box)return;
+  box.innerHTML='<span class="activity-empty">Carregando...</span>';
+  if(!supabaseClient||!leadId)return;
+  const {data,error}=await supabaseClient.from("activities").select("id,type,description,created_at").eq("lead_id",leadId).order("created_at",{ascending:false}).limit(8);
+  if(seq!==activityRequestSeq)return;
+  if(error){box.innerHTML='<span class="activity-empty">Não foi possível carregar o histórico.</span>';return}
+  if(!data?.length){box.innerHTML='<span class="activity-empty">Nenhuma atividade ainda.</span>';return}
+  box.innerHTML=data.map(a=>`<div class="activity-item"><span class="activity-dot"></span><div><strong>${esc(a.type)}</strong>${a.description?`<p>${esc(a.description)}</p>`:""}</div><small>${formatDateTime(a.created_at)}</small></div>`).join("");
+}
+async function loadCloudData(){
+  setSyncState("syncing","Sincronizando...");
+  const [{data:leadRows,error:leadErr},{data:settingsRows,error:settingsErr}]=await Promise.all([
+    supabaseClient.from("leads").select("*").order("created_at",{ascending:false}),
+    supabaseClient.from("app_settings").select("settings").eq("id",1).maybeSingle()
+  ]);
+  if(leadErr)throw leadErr;
+  leads=(leadRows||[]).map(rowToLead);
+  if(!settingsErr&&settingsRows?.settings)settings=deepMerge(DEFAULT_SETTINGS,settingsRows.settings);
+  setSyncState("","Sincronizado");
+}
+function setupRealtime(){
+  if(realtimeChannel)supabaseClient.removeChannel(realtimeChannel);
+  realtimeChannel=supabaseClient.channel("leadflow-leads")
+    .on("postgres_changes",{event:"*",schema:"public",table:"leads"},async()=>{
+      if(!currentUser)return;
+      const {data,error}=await supabaseClient.from("leads").select("*").order("created_at",{ascending:false});
+      if(!error){leads=(data||[]).map(rowToLead);renderAll();}
+    }).subscribe();
+}
+
 function persistSettings(){ saveJSON(SETTINGS_KEY,settings); }
 function formatDateTime(iso){
   if(!iso) return "—";
@@ -203,7 +282,6 @@ function normalizeLeads(){
     createdAt:l.createdAt||new Date().toISOString(),
     updatedAt:l.updatedAt||new Date().toISOString()
   }));
-  persist();
 }
 
 function queuePredicate(lead){
@@ -312,6 +390,7 @@ function renderFocus(){
   if(lead.status)activity.push(`Status: ${lead.status}`);
   $("lastActivity").classList.toggle("hidden",!lead.sentAt && !lead.followup && lead.status==="Não contatado");
   $("lastActivity").textContent=activity.join(" • ");
+  loadActivities(lead.id);
 }
 
 function selectNextAfter(currentId){
@@ -320,7 +399,7 @@ function selectNextAfter(currentId){
   renderProspect();
 }
 
-function sendWhatsapp(){
+async function sendWhatsapp(){
   const lead=leads.find(l=>l.id===selectedLeadId);
   if(!lead)return;
   const url=whatsappUrl(lead);
@@ -332,31 +411,34 @@ function sendWhatsapp(){
   lead.sentAt=now;
   lead.lastContactAt=now;
   lead.updatedAt=now;
-  persist();
+  await persist(lead);
+  await addActivity(lead.id,"Mensagem enviada","WhatsApp aberto pelo CRM");
 
   const currentId=lead.id;
   toast("Marcado como enviado. Próximo lead pronto.");
   setTimeout(()=>selectNextAfter(currentId),120);
 }
 
-function markStatus(status){
+async function markStatus(status){
   const lead=leads.find(l=>l.id===selectedLeadId);
   if(!lead)return;
   lead.status=status;
   lead.updatedAt=new Date().toISOString();
   if(status==="Respondeu")lead.repliedAt=new Date().toISOString();
   if(status==="Sem interesse")lead.followup="";
-  persist();
+  await persist(lead);
+  await addActivity(lead.id,"Status alterado",status);
   const id=lead.id;
   toast(`Status: ${status}`);
   setTimeout(()=>selectNextAfter(id),100);
 }
-function addFollowup(){
+async function addFollowup(){
   const lead=leads.find(l=>l.id===selectedLeadId);
   if(!lead)return;
   lead.followup=addDaysISO(3);
   lead.updatedAt=new Date().toISOString();
-  persist();
+  await persist(lead);
+  await addActivity(lead.id,"Follow-up agendado",formatDateBR(lead.followup));
   toast("Follow-up marcado para +3 dias.");
   selectNextAfter(lead.id);
 }
@@ -367,12 +449,13 @@ function skipCurrent(){
   toast("Lead pulado nesta sessão.");
   selectNextAfter(id);
 }
-function setSiteQuality(q){
+async function setSiteQuality(q){
   const lead=leads.find(l=>l.id===selectedLeadId);
   if(!lead)return;
   lead.siteQuality=q;
   lead.updatedAt=new Date().toISOString();
-  persist();
+  await persist(lead);
+  await addActivity(lead.id,"Site avaliado",siteLabel(lead));
   renderProspect();
 }
 
@@ -435,7 +518,7 @@ function openModal(id=null){
   $("leadModal").classList.remove("hidden");
 }
 function closeModal(){$("leadModal").classList.add("hidden")}
-function saveModal(){
+async function saveModal(){
   const id=$("editLeadId").value||uid();
   const old=leads.find(l=>l.id===id);
   const website=norm($("editWebsite").value);
@@ -465,14 +548,18 @@ function saveModal(){
   if(!l.name){toast("Informe o nome da empresa.");return}
   const idx=leads.findIndex(x=>x.id===id);
   if(idx>=0)leads[idx]=l;else leads.push(l);
-  persist();selectedLeadId=l.id;closeModal();renderProspect();renderLeadsTable();toast("Lead salvo.");
+  const ok=await persist(l);
+  if(ok!==false)await addActivity(l.id,old?"Lead atualizado":"Lead criado",l.name);
+  selectedLeadId=l.id;closeModal();renderProspect();renderLeadsTable();toast("Lead salvo.");
 }
-function deleteLead(){
+async function deleteLead(){
   const id=$("editLeadId").value;
   if(!id||!confirm("Excluir este lead?"))return;
+  const {error}=await supabaseClient.from("leads").delete().eq("id",id);
+  if(error){toast("Não foi possível excluir o lead.");return}
   leads=leads.filter(l=>l.id!==id);
   if(selectedLeadId===id)selectedLeadId=null;
-  persist();closeModal();renderProspect();renderLeadsTable();toast("Lead excluído.");
+  closeModal();renderProspect();renderLeadsTable();toast("Lead excluído.");
 }
 
 const ALIASES={
@@ -529,7 +616,7 @@ function mergeImported(incoming){
       updated++;
     }else{leads.push(n);map.set(key,n);added++}
   });
-  persist();return{added,updated};
+  persist(leads);return{added,updated};
 }
 function parseCSV(text){
   const rows=[];let row=[],cell="",quotes=false;
@@ -602,59 +689,13 @@ async function restore(file){
     const data=JSON.parse(await file.text());
     if(!Array.isArray(data.leads))throw new Error("Backup inválido.");
     leads=data.leads;settings=deepMerge(DEFAULT_SETTINGS,data.settings||{});
-    normalizeLeads();persistSettings();selectedLeadId=null;renderAll();renderSettings();toast("Backup restaurado.");
+    normalizeLeads();await persist(leads);await persistSettings();selectedLeadId=null;renderAll();renderSettings();toast("Backup restaurado no Supabase.");
   }catch(e){toast(e.message||"Falha ao restaurar.")}
 }
 
 
-function getApifyStoredToken(){
-  return localStorage.getItem(APIFY_TOKEN_LOCAL_KEY)
-    || sessionStorage.getItem(APIFY_TOKEN_SESSION_KEY)
-    || "";
-}
-
-function saveApifyTokenPreference(){
-  const token=norm($("apifyToken").value);
-  const remember=$("rememberApifyToken").checked;
-
-  if(remember){
-    localStorage.setItem(APIFY_TOKEN_LOCAL_KEY,token);
-    sessionStorage.removeItem(APIFY_TOKEN_SESSION_KEY);
-  }else{
-    localStorage.removeItem(APIFY_TOKEN_LOCAL_KEY);
-    if(token)sessionStorage.setItem(APIFY_TOKEN_SESSION_KEY,token);
-    else sessionStorage.removeItem(APIFY_TOKEN_SESSION_KEY);
-  }
-}
-
 function actorIdForApi(value){
   return norm(value).replace("/", "~");
-}
-
-function apifyHeaders(token, includeJson=false){
-  const headers={Authorization:`Bearer ${token}`};
-  if(includeJson)headers["Content-Type"]="application/json";
-  return headers;
-}
-
-async function apifyFetch(url, options={}){
-  const response=await fetch(url,options);
-  const text=await response.text();
-  let data=null;
-  try{data=text?JSON.parse(text):null}catch{data=text}
-
-  if(!response.ok){
-    let message=`Apify retornou HTTP ${response.status}.`;
-    if(data?.error?.message)message=data.error.message;
-    else if(data?.message)message=data.message;
-    else if(typeof data==="string" && data.trim())message=data.slice(0,300);
-
-    if(response.status===401 || response.status===403){
-      message="Token inválido, sem permissão ou Actor indisponível para esta conta.";
-    }
-    throw new Error(message);
-  }
-  return data;
 }
 
 function getApifyForm(){
@@ -682,9 +723,6 @@ function saveApifyForm(){
 
 function loadApifyForm(){
   const saved=loadJSON(APIFY_FORM_KEY,null);
-  $("apifyToken").value=getApifyStoredToken();
-  $("rememberApifyToken").checked=Boolean(localStorage.getItem(APIFY_TOKEN_LOCAL_KEY));
-
   if(saved){
     $("apifyActorId").value=saved.actorId||"compass~crawler-google-places";
     $("apifyQueries").value=Array.isArray(saved.queries)?saved.queries.join("\n"):(saved.queries||"limpeza de estofados");
@@ -729,6 +767,13 @@ function apifyRunData(payload){
   return payload?.data || payload || {};
 }
 
+async function apifyProxy(action,payload={}){
+  const {data,error}=await supabaseClient.functions.invoke("apify-proxy",{body:{action,...payload}});
+  if(error)throw new Error(error.message||"Falha ao chamar a Edge Function do Apify.");
+  if(data?.error)throw new Error(data.error);
+  return data;
+}
+
 function buildGoogleMapsActorInput(form){
   const input={
     searchStringsArray:form.queries,
@@ -760,14 +805,11 @@ function buildGoogleMapsActorInput(form){
 async function sleep(ms){return new Promise(resolve=>setTimeout(resolve,ms))}
 
 async function startApifySearch(){
-  const token=norm($("apifyToken").value);
   const form=getApifyForm();
 
-  if(!token){toast("Cole seu API Token do Apify.");$("apifyToken").focus();return}
   if(!form.queries.length){toast("Informe pelo menos uma pesquisa.");$("apifyQueries").focus();return}
   if(!form.location){toast("Informe a localização da busca.");$("apifyLocation").focus();return}
 
-  saveApifyTokenPreference();
   saveApifyForm();
   lastApifyLeads=[];
   currentApifyRun=null;
@@ -783,11 +825,9 @@ async function startApifySearch(){
   });
 
   try{
-    const actor=encodeURIComponent(form.actorId);
-    const payload=await apifyFetch(`${APIFY_API_BASE}/actors/${actor}/runs`,{
-      method:"POST",
-      headers:apifyHeaders(token,true),
-      body:JSON.stringify(buildGoogleMapsActorInput(form))
+    const payload=await apifyProxy("start",{
+      actorId:form.actorId,
+      input:buildGoogleMapsActorInput(form)
     });
 
     const run=apifyRunData(payload);
@@ -820,9 +860,7 @@ async function startApifySearch(){
       }
 
       await sleep(3000);
-      const statusPayload=await apifyFetch(`${APIFY_API_BASE}/actor-runs/${encodeURIComponent(run.id)}`,{
-        headers:apifyHeaders(token)
-      });
+      const statusPayload=await apifyProxy("status",{runId:run.id});
       finalRun=apifyRunData(statusPayload);
 
       const elapsed=Math.round((Date.now()-started)/1000);
@@ -849,10 +887,7 @@ async function startApifySearch(){
       status:"SUCCEEDED",runId:run.id,percent:88,state:"running"
     });
 
-    const datasetPayload=await apifyFetch(
-      `${APIFY_API_BASE}/datasets/${encodeURIComponent(datasetId)}/items?format=json&clean=true`,
-      {headers:apifyHeaders(token)}
-    );
+    const datasetPayload=await apifyProxy("dataset",{datasetId});
 
     const items=Array.isArray(datasetPayload)
       ? datasetPayload
@@ -925,7 +960,41 @@ function saveWeights(){
 }
 function renderAll(){renderProspect();renderLeadsTable();updateCounters()}
 
+function supabaseConfigured(){
+  const c=window.LEADFLOW_SUPABASE||{};
+  return c.url&&c.anonKey&&!c.url.includes("COLE_")&&!c.anonKey.includes("COLE_");
+}
+function showAuth(message=""){
+  $("authScreen").classList.remove("hidden");$("authStatus").textContent=message;
+}
+function hideAuth(){$("authScreen").classList.add("hidden")}
+async function login(){
+  if(!supabaseConfigured()){showAuth("Configure js/supabase-config.js antes de entrar.");return}
+  const email=norm($("authEmail").value),password=$("authPassword").value;
+  if(!email||!password){$("authStatus").textContent="Informe e-mail e senha.";return}
+  $("authStatus").textContent="Entrando...";
+  const {error}=await supabaseClient.auth.signInWithPassword({email,password});
+  if(error)$("authStatus").textContent=error.message;
+}
+async function handleSession(session){
+  currentUser=session?.user||null;
+  if(!currentUser){showAuth();return}
+  hideAuth();
+  $("userBtn").textContent=currentUser.email?.split("@")[0]||"Conta";
+  try{
+    await loadCloudData(); normalizeLeads(); renderSettings(); renderAll(); setupRealtime();
+    const local=loadJSON(STORAGE_KEY,[]);
+    if(!leads.length&&Array.isArray(local)&&local.length){
+      leads=local;normalizeLeads();await persist(leads);localStorage.removeItem(STORAGE_KEY);
+      toast(`${leads.length} leads locais migrados para o Supabase.`);renderAll();
+    }
+  }catch(e){console.error(e);setSyncState("error","Erro de conexão");toast("Não foi possível carregar o Supabase. Confira a configuração e o SQL.");}
+}
+
 function bind(){
+  $("loginBtn").addEventListener("click",login);
+  $("authPassword").addEventListener("keydown",e=>{if(e.key==="Enter")login()});
+  $("userBtn").addEventListener("click",async()=>{if(confirm("Sair desta conta?"))await supabaseClient.auth.signOut()});
   $$(".nav-btn").forEach(b=>b.addEventListener("click",()=>switchView(b.dataset.view)));
   $$("[data-go]").forEach(b=>b.addEventListener("click",()=>switchView(b.dataset.go)));
 
@@ -966,9 +1035,11 @@ function bind(){
     const b=e.target.closest("[data-table-edit]");if(b)openModal(b.dataset.tableEdit);
   });
   $("exportCsvBtn").addEventListener("click",exportCSV);
-  $("clearAllBtn").addEventListener("click",()=>{
-    if(!leads.length||!confirm("Apagar todos os leads deste navegador?"))return;
-    leads=[];selectedLeadId=null;persist();renderAll();toast("Base apagada.");
+  $("clearAllBtn").addEventListener("click",async()=>{
+    if(!leads.length||!confirm("Apagar TODOS os leads compartilhados do CRM? Esta ação afeta todos os computadores."))return;
+    const {error}=await supabaseClient.from("leads").delete().neq("id","");
+    if(error){toast("Não foi possível apagar a base.");return}
+    leads=[];selectedLeadId=null;renderAll();toast("Base compartilhada apagada.");
   });
 
   $("addLeadBtn").addEventListener("click",()=>openModal());
@@ -979,13 +1050,6 @@ function bind(){
   $("deleteLeadBtn").addEventListener("click",deleteLead);
 
   $("runApifyBtn").addEventListener("click",startApifySearch);
-  $("toggleTokenBtn").addEventListener("click",()=>{
-    const input=$("apifyToken");
-    const show=input.type==="password";
-    input.type=show?"text":"password";
-    $("toggleTokenBtn").textContent=show?"Ocultar":"Mostrar";
-  });
-  $("rememberApifyToken").addEventListener("change",saveApifyTokenPreference);
   ["apifyQueries","apifyMaxPlaces"].forEach(id=>$(id).addEventListener("input",updateApifyRunSummary));
   ["apifyLocation","apifyLanguage","apifyWebsiteFilter","apifyMinStars","apifySkipClosed","apifyPlaceDetails","apifyActorId"]
     .forEach(id=>$(id).addEventListener("change",saveApifyForm));
@@ -1016,13 +1080,13 @@ function bind(){
   });
 }
 
-function init(){
-  normalizeLeads();
-  populateStatuses();
-  bind();
-  renderSettings();
-  loadApifyForm();
-  renderAll();
+async function init(){
+  populateStatuses(); bind(); renderSettings(); loadApifyForm(); renderAll();
+  if(!supabaseConfigured()){showAuth("Configure o Supabase em js/supabase-config.js. Veja SUPABASE_SETUP.md.");return}
+  supabaseClient=window.supabase.createClient(window.LEADFLOW_SUPABASE.url,window.LEADFLOW_SUPABASE.anonKey);
+  const {data:{session}}=await supabaseClient.auth.getSession();
+  await handleSession(session);
+  supabaseClient.auth.onAuthStateChange((_event,newSession)=>{handleSession(newSession)});
 }
 init();
 })();

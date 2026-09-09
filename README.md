@@ -1,123 +1,74 @@
-# LeadFlow v4 — CRM local + Apify API
+# LeadFlow — CRM de prospecção da LM Studio
 
-Esta versão elimina a etapa de abrir o Apify, exportar um arquivo e depois importar no CRM.
+CRM simples para trabalhar uma fila de prospecção sem perder tempo navegando por várias telas.
 
-## Fluxo novo
+## O que mudou nesta versão
 
-1. Abra **Buscar Maps**.
-2. Cole seu **API Token do Apify**.
-3. Digite as pesquisas, uma por linha.
-4. Informe a localização.
-5. Clique em **Buscar no Google Maps**.
-6. O LeadFlow:
-   - inicia o Actor `compass/crawler-google-places`;
-   - acompanha o Run pela API;
-   - espera a execução terminar;
-   - baixa o dataset;
-   - converte os resultados em leads;
-   - remove/mescla duplicatas;
-   - joga tudo direto na fila de prospecção.
+A base principal deixou de ficar presa ao navegador.
 
-Depois é só usar:
+- Supabase Auth para login;
+- Supabase Database para leads compartilhados;
+- RLS para impedir acesso sem autenticação;
+- Realtime para refletir alterações entre computadores;
+- histórico de atividades por lead;
+- mensagens e score sincronizados;
+- migração automática da antiga base local quando a nuvem estiver vazia;
+- Apify protegido por Supabase Edge Function;
+- token do Apify fora do JavaScript e do `localStorage`.
 
-**Prospectar → Enviar no WhatsApp → próximo lead.**
-
-## API usada
-
-O projeto usa a API REST v2 do Apify.
-
-Fluxo:
-
-- `POST /v2/actors/{actorId}/runs`
-- `GET /v2/actor-runs/{runId}`
-- `GET /v2/datasets/{datasetId}/items`
-
-A autenticação é enviada no header:
+## Fluxo comercial preservado
 
 ```text
-Authorization: Bearer SEU_TOKEN
+Prospectar
+→ abrir WhatsApp
+→ marcar automaticamente como enviado
+→ próximo lead
+→ resposta
+→ follow-up
+→ proposta
+→ fechamento
 ```
 
-O token não é enviado em query string.
+O objetivo continua sendo poucos cliques para executar a prospecção.
 
-## Google Maps Scraper
-
-Actor padrão:
+## Estrutura
 
 ```text
-compass~crawler-google-places
+crmprospeccao-main/
+├── index.html
+├── README.md
+├── SUPABASE_SETUP.md
+├── exemplo_apify.csv
+├── css/
+│   └── style.css
+├── js/
+│   ├── app.js
+│   └── supabase-config.js
+└── supabase/
+    ├── schema.sql
+    └── functions/
+        └── apify-proxy/
+            └── index.ts
 ```
 
-Campos usados na busca:
+## Antes de rodar
 
-- `searchStringsArray`
-- `locationQuery`
-- `maxCrawledPlacesPerSearch`
-- `language`
-- `website`
-- `skipClosedPlaces`
-- `scrapePlaceDetailPage`
-- `maxReviews: 0`
-- enriquecimentos extras desativados
+Siga `SUPABASE_SETUP.md`.
 
-Isso foi configurado para prospecção, evitando coletar reviews completas, imagens, redes sociais ou enriquecimento de leads sem necessidade.
-
-## Token
-
-Por padrão, se você não marcar **Lembrar token neste navegador**, ele fica apenas no `sessionStorage` da aba/sessão.
-
-Se marcar a opção, ele será gravado no `localStorage` do navegador.
-
-O token:
-- não entra no backup JSON do CRM;
-- não entra no CSV;
-- não é colocado no código-fonte.
-
-Em computador compartilhado, não use a opção de lembrar.
-
-## Custos
-
-O LeadFlow continua gratuito e local.
-
-Porém, as execuções feitas no Apify usam os créditos/limites da sua conta Apify. A interface mostra uma estimativa máxima de quantidade de resultados antes da execução.
-
-## Importação manual
-
-A importação CSV/XLSX continua disponível como fallback em:
-
-**Buscar Maps → Prefiro importar um arquivo CSV/XLSX manualmente**
-
-## Exportação
-
-Você pode:
-- exportar todos os leads na tela **Leads**;
-- exportar somente a última busca feita via Apify na própria tela **Buscar Maps**.
-
-## Como rodar
-
-Recomendado:
+Depois rode localmente, por exemplo:
 
 ```bash
 python -m http.server 5500
 ```
 
-Depois abra:
+E abra `http://localhost:5500`.
 
-```text
-http://localhost:5500
-```
+## Segurança
 
-Rodar por HTTP local é preferível a abrir diretamente `file://`, principalmente para chamadas externas de API.
+Nunca coloque no projeto:
 
-## Estrutura
+- `service_role` do Supabase;
+- senha do banco;
+- token privado do Apify.
 
-```text
-leadflow_crm_v4/
-├── index.html
-├── README.md
-├── exemplo_apify.csv
-├── css/
-│   └── style.css
-└── js/
-    └── app.js
-```
+No frontend entram apenas a Project URL e a chave `anon/public` do Supabase. A proteção dos registros é feita pelo Auth + RLS. O token do Apify é configurado como secret da Edge Function.

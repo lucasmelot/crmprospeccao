@@ -8,6 +8,20 @@
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
+  <div class="auth-screen" id="authScreen">
+    <div class="auth-card">
+      <div class="brand auth-brand">
+        <div class="brand-mark">L</div>
+        <div><strong>LeadFlow</strong><small>LM Studio</small></div>
+      </div>
+      <h1>Acesse seu CRM</h1>
+      <p>Seus leads ficam sincronizados pelo Supabase em todos os seus computadores.</p>
+      <label><span>E-mail</span><input id="authEmail" type="email" autocomplete="email" placeholder="voce@exemplo.com"></label>
+      <label><span>Senha</span><input id="authPassword" type="password" autocomplete="current-password" placeholder="••••••••"></label>
+      <button class="btn primary auth-submit" id="loginBtn">Entrar</button>
+      <div class="auth-status" id="authStatus"></div>
+    </div>
+  </div>
   <header class="app-header">
     <div class="brand">
       <div class="brand-mark">L</div>
@@ -25,6 +39,8 @@
     </nav>
 
     <div class="header-actions">
+      <span class="sync-indicator" id="syncIndicator">Sincronizado</span>
+      <button class="user-btn" id="userBtn" title="Conta">Conta</button>
       <button class="icon-btn" id="addLeadBtn" title="Adicionar lead">+</button>
     </div>
   </header>
@@ -161,6 +177,10 @@
             </div>
 
             <div class="last-activity hidden" id="lastActivity"></div>
+            <div class="activity-card" id="activityCard">
+              <div class="activity-title"><strong>Histórico</strong><span>ações do lead</span></div>
+              <div class="activity-list" id="activityList"><span class="activity-empty">Nenhuma atividade ainda.</span></div>
+            </div>
           </div>
         </section>
       </div>
@@ -243,23 +263,14 @@
             <div class="section-head">
               <div>
                 <h2>1. Conexão com Apify</h2>
-                <p>Seu token é usado somente para chamar a API.</p>
+                <p>O token fica protegido no Supabase e nunca é enviado ao navegador.</p>
               </div>
-              <span class="api-badge">API</span>
+              <span class="api-badge">EDGE FUNCTION</span>
             </div>
 
-            <label class="api-field">
-              <span>API Token</span>
-              <div class="token-row">
-                <input id="apifyToken" type="password" autocomplete="off" placeholder="apify_api_...">
-                <button class="btn secondary compact-btn" id="toggleTokenBtn" type="button">Mostrar</button>
-              </div>
-            </label>
-
-            <label class="remember-row">
-              <input id="rememberApifyToken" type="checkbox">
-              <span>Lembrar token neste navegador</span>
-            </label>
+            <div class="security-note">
+              Integração segura: LeadFlow → Supabase Edge Function → Apify. Configure o secret <code>APIFY_TOKEN</code> uma única vez no Supabase.
+            </div>
 
             <label class="api-field">
               <span>Actor</span>
@@ -268,7 +279,7 @@
             </label>
 
             <div class="security-note">
-              O token não entra no backup do CRM. Em computador compartilhado, deixe “lembrar token” desmarcado.
+              Nenhuma chave privada do Apify fica no GitHub, no localStorage ou no código do navegador.
             </div>
           </div>
 
@@ -439,8 +450,8 @@
 
         <div class="panel compact-panel">
           <div>
-            <strong>Backup local</strong>
-            <p>Se limpar os dados do navegador, sua base pode ser perdida.</p>
+            <strong>Backup e portabilidade</strong>
+            <p>Os dados principais ficam no Supabase. O backup JSON continua disponível como cópia adicional.</p>
           </div>
           <div class="page-actions">
             <button class="btn secondary" id="backupBtn">Baixar backup</button>
@@ -514,6 +525,8 @@
 
   <div class="toast-wrap" id="toastWrap"></div>
 
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="js/supabase-config.js"></script>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
   <script src="js/app.js"></script>
 </body>
